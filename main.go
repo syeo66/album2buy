@@ -76,9 +76,24 @@ func loadConfig() *Config {
 		SubsonicPass:   os.Getenv("SUBSONIC_PASSWORD"),
 	}
 
-	if cfg.LastFMAPIKey == "" || cfg.LastFMUser == "" ||
-		cfg.SubsonicServer == "" || cfg.SubsonicUser == "" || cfg.SubsonicPass == "" {
-		fmt.Println("Missing required environment variables")
+	missing := []string{}
+	if cfg.LastFMAPIKey == "" {
+		missing = append(missing, "LASTFM_API_KEY")
+	}
+	if cfg.LastFMUser == "" {
+		missing = append(missing, "LASTFM_USER")
+	}
+	if cfg.SubsonicServer == "" {
+		missing = append(missing, "SUBSONIC_SERVER")
+	}
+	if cfg.SubsonicUser == "" {
+		missing = append(missing, "SUBSONIC_USER")
+	}
+	if cfg.SubsonicPass == "" {
+		missing = append(missing, "SUBSONIC_PASSWORD")
+	}
+	if len(missing) > 0 {
+		fmt.Printf("Missing: %v\n", missing)
 		os.Exit(1)
 	}
 
