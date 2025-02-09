@@ -58,6 +58,8 @@ type Config struct {
 	SubsonicPass   string
 }
 
+var httpClient = createHTTPClient()
+
 func main() {
 	cfg := loadConfig()
 	albums, _ := fetchLastFMTopAlbums(cfg)
@@ -84,7 +86,6 @@ func loadConfig() *Config {
 }
 
 func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
-	client := createHTTPClient()
 	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
 		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
 
@@ -92,7 +93,7 @@ func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 	var err error
 
 	for i := 0; i < maxRetries; i++ {
-		resp, err = client.Get(url)
+		resp, err = httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
@@ -122,11 +123,10 @@ func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 }
 
 func findMissingAlbums(cfg *Config, albums []Album) []*Album {
-	client := createHTTPClient()
 	missing := make([]*Album, 0, 5)
 
 	for _, album := range albums {
-		exists, err := checkSubsonic(client, cfg, album)
+		exists, err := checkSubsonic(cfg, album)
 		if err != nil {
 			continue
 		}
@@ -140,7 +140,7 @@ func findMissingAlbums(cfg *Config, albums []Album) []*Album {
 	return missing
 }
 
-func checkSubsonic(client *http.Client, cfg *Config, album Album) (bool, error) {
+func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	salt := time.Now().Format("20060102150405")
 	token := md5.Sum([]byte(cfg.SubsonicPass + salt))
 	tokenStr := hex.EncodeToString(token[:])
@@ -166,7 +166,7 @@ func checkSubsonic(client *http.Client, cfg *Config, album Album) (bool, error) 
 	var err error
 
 	for i := 0; i < maxRetries; i++ {
-		resp, err = client.Get(url)
+		resp, err = httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
