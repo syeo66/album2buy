@@ -9,7 +9,6 @@ My reasoning: I’ve been shifting away from Spotify because the platform feels 
 - **Subsonic Compatibility**: Checks against your Subsonic music library
 - **Smart Recommendations**: Identifies up to 5 missing albums
 - **Retry Logic**: Robust error handling with 3 retry attempts
-- **Tabular Output**: Clean CLI presentation with album metadata
 
 ## Installation
 
@@ -81,9 +80,7 @@ RECOMMENDED ALBUMS
 - Subsonic server (1.16.1+ recommended)
 
 ## Security Note
-The client currently skips SSL certificate verification (`InsecureSkipVerify: true`). For production use:
-1. Replace with proper certificate validation
-2. Consider adding certificate pinning
+The client currently skips SSL certificate verification (`InsecureSkipVerify: true`). Since the data is not really what I'd consider sensitive I guess that's okay. But you should be aware of it. 
 
 ## License
 MIT © Red Ochsenbein 2025
