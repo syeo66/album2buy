@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -150,7 +151,7 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	token := md5.Sum([]byte(cfg.SubsonicPass + salt))
 	tokenStr := hex.EncodeToString(token[:])
 
-	query := url.QueryEscape(album.Name)
+	query := url.QueryEscape(cleanString(album.Name))
 	url := fmt.Sprintf("%s%s?u=%s&t=%s&s=%s&v=1.16.1&c=albumcheck&f=json&query=%s",
 		cfg.SubsonicServer, subsonicAPIPath,
 		url.QueryEscape(cfg.SubsonicUser), // Encode username 【4】
@@ -179,11 +180,26 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	}
 
 	for _, a := range subsonicResp.SubsonicResponse.SearchResult3.Album {
-		if strings.EqualFold(a.Title, album.Name) && strings.EqualFold(a.Artist, album.Artist.Name) {
+		if strings.EqualFold(cleanString(a.Title), cleanString(album.Name)) && strings.EqualFold(cleanString(a.Artist), cleanString(album.Artist.Name)) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func cleanString(s string) string {
+	// Step 1: Remove non-letters, non-periods, and non-spaces
+	re := regexp.MustCompile(`[^\p{L} ]`)
+	cleaned := re.ReplaceAllString(s, "")
+
+	// Step 2: Collapse multiple spaces to one
+	re = regexp.MustCompile(`\s+`)
+	cleaned = re.ReplaceAllString(cleaned, " ")
+
+	// Trim leading/trailing spaces
+	cleaned = strings.TrimSpace(cleaned)
+
+	return cleaned
 }
 
 func printRecommendation(albums []*Album) {
