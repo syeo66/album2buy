@@ -85,7 +85,7 @@ func loadConfig() *Config {
 
 func fetchLastFMTopAlbums(cfg *Config) []Album {
 	client := createHTTPClient()
-	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month",
+	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
 		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
 
 	var resp *http.Response
