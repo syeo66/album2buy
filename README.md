@@ -2,8 +2,6 @@
 
 A Go utility that identifies top Last.fm albums missing from your Subsonic library.
 
-![CLI Example](https://via.placeholder.com/600x200?text=Sample+CLI+Output+Here) <!-- Replace with actual screenshot -->
-
 ## Features
 - **Last.fm Integration**: Fetches your top 50 albums from the last year
 - **Subsonic Compatibility**: Checks against your Subsonic music library
