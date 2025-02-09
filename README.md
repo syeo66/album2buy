@@ -14,9 +14,9 @@ A Go utility that identifies top Last.fm albums missing from your Subsonic libra
 Requires Go 1.21+
 
 ```bash
-git clone https://github.com/yourusername/album-gap-analyzer.git
-cd album-gap-analyzer
-go build -o albumgap *.go
+git clone https://github.com/syeo66/album2buy.git
+cd album2buy
+go build -o album2buy *.go
 ```
 
 Install dotenvx for environment management
