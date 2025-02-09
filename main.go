@@ -62,7 +62,7 @@ var httpClient = createHTTPClient()
 
 func main() {
 	cfg := loadConfig()
-	albums, _ := fetchLastFMTopAlbums(cfg)
+	albums := fetchLastFMTopAlbums(cfg)
 	recommendation := findMissingAlbums(cfg, albums)
 	printRecommendation(recommendation)
 }
@@ -100,7 +100,7 @@ func loadConfig() *Config {
 	return cfg
 }
 
-func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
+func fetchLastFMTopAlbums(cfg *Config) []Album {
 	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
 		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
 
@@ -112,19 +112,9 @@ func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
-
 		time.Sleep(retryDelay)
 	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("nil response after retries")
-	}
-
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d from Last.fm", resp.StatusCode)
-	}
 
 	body, _ := io.ReadAll(resp.Body)
 	var lastFMResp LastFMResponse
@@ -134,7 +124,7 @@ func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 		fmt.Printf("could not unmarshal last fm data: %v+", err)
 	}
 
-	return lastFMResp.Topalbums.Album, nil
+	return lastFMResp.Topalbums.Album
 }
 
 func findMissingAlbums(cfg *Config, albums []Album) []*Album {
@@ -160,22 +150,13 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	token := md5.Sum([]byte(cfg.SubsonicPass + salt))
 	tokenStr := hex.EncodeToString(token[:])
 
-	baseURL, _ := url.Parse(cfg.SubsonicServer)
-	baseURL.Path = subsonicAPIPath
-
 	query := url.QueryEscape(album.Name)
-
-	q := url.Values{}
-	q.Add("u", cfg.SubsonicUser)
-	q.Add("t", tokenStr)
-	q.Add("s", salt)
-	q.Add("v", "1.16.1")
-	q.Add("c", "albumcheck")
-	q.Add("f", "json")
-	q.Add("query", query)
-	baseURL.RawQuery = q.Encode()
-
-	url := baseURL.String()
+	url := fmt.Sprintf("%s%s?u=%s&t=%s&s=%s&v=1.16.1&c=albumcheck&f=json&query=%s",
+		cfg.SubsonicServer, subsonicAPIPath,
+		url.QueryEscape(cfg.SubsonicUser), // Encode username 【4】
+		tokenStr,
+		salt,
+		query)
 
 	var resp *http.Response
 	var err error
@@ -189,10 +170,7 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("reading body: %w", err)
-	}
+	body, _ := io.ReadAll(resp.Body)
 	var subsonicResp SubsonicResponse
 	err = json.Unmarshal(body, &subsonicResp)
 
