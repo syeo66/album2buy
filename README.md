@@ -1,4 +1,4 @@
-# Album Gap Analyzer
+# Album2Buy 
 
 A Go utility that identifies top Last.fm albums missing from your Subsonic library.
 
