@@ -79,9 +79,6 @@ RECOMMENDED ALBUMS
 - Valid Last.fm API credentials
 - Subsonic server (1.16.1+ recommended)
 
-## Security Note
-The client currently skips SSL certificate verification (`InsecureSkipVerify: true`). Since the data is not really what I'd consider sensitive I guess that's okay. But you should be aware of it. 
-
 ## License
 MIT © Red Ochsenbein 2025
 

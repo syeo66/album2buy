@@ -190,11 +190,13 @@ func printRecommendation(albums []*Album) {
 }
 
 func createHTTPClient() *http.Client {
+	skipVerify := os.Getenv("INSECURE_SKIP_VERIFY") == "true"
+
 	return &http.Client{
 		Timeout: defaultTimeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Bypass certificate validation 【1】【2】
+				InsecureSkipVerify: skipVerify,
 			},
 		},
 	}
