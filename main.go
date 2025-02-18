@@ -131,7 +131,13 @@ func fetchLastFMTopAlbums(cfg *Config) []Album {
 func findMissingAlbums(cfg *Config, albums []Album) []*Album {
 	missing := make([]*Album, 0, 5)
 
+	ignoredURLs := loadIgnoredURLs()
+
 	for _, album := range albums {
+		if isURLIgnored(album.URL, ignoredURLs) {
+			continue
+		}
+
 		exists, err := checkSubsonic(cfg, album)
 		if err != nil {
 			continue
@@ -154,7 +160,7 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	query := url.QueryEscape(cleanString(album.Name))
 	url := fmt.Sprintf("%s%s?u=%s&t=%s&s=%s&v=1.16.1&c=albumcheck&f=json&query=%s",
 		cfg.SubsonicServer, subsonicAPIPath,
-		url.QueryEscape(cfg.SubsonicUser), // Encode username 【4】
+		url.QueryEscape(cfg.SubsonicUser), // Encode username
 		tokenStr,
 		salt,
 		query)
@@ -231,4 +237,40 @@ func createHTTPClient() *http.Client {
 			},
 		},
 	}
+}
+
+func loadIgnoredURLs() []string {
+	filePath := os.Getenv("IGNORE_FILE")
+	if filePath == "" {
+		return []string{} // No ignore file specified
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		// Handle the error, e.g., log it or print a warning
+		fmt.Printf("Warning: Could not open ignore file: %v\n", err)
+		return []string{} // Return an empty slice, effectively ignoring the error
+	}
+	defer file.Close()
+
+	var ignoredURLs []string
+	content, _ := io.ReadAll(file)
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line) // Remove leading/trailing whitespace
+		if line != "" {                // Ignore empty lines
+			ignoredURLs = append(ignoredURLs, line)
+		}
+	}
+
+	return ignoredURLs
+}
+
+func isURLIgnored(url string, ignoredURLs []string) bool {
+	for _, ignoredURL := range ignoredURLs {
+		if url == ignoredURL {
+			return true
+		}
+	}
+	return false
 }
