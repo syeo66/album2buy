@@ -72,7 +72,7 @@ RECOMMENDED ALBUMS
 | `SUBSONIC_SERVER` | Subsonic server URL (include protocol) |
 | `SUBSONIC_USER` | Subsonic account username |
 | `SUBSONIC_PASSWORD` | Subsonic account password |
-| `IGNORE_FILE=` | Path to a list of ignored Last.fm URL's |
+| `IGNORE_FILE` | Path to a list of ignored Last.fm URL's |
 
 ## Requirements
 - Go 1.21+
