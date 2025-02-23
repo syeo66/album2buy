@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -108,7 +109,7 @@ func fetchLastFMTopAlbums(cfg *Config) []Album {
 	var resp *http.Response
 	var err error
 
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		resp, err = httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
@@ -168,7 +169,7 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	var resp *http.Response
 	var err error
 
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		resp, err = httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
@@ -267,10 +268,5 @@ func loadIgnoredURLs() []string {
 }
 
 func isURLIgnored(url string, ignoredURLs []string) bool {
-	for _, ignoredURL := range ignoredURLs {
-		if url == ignoredURL {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ignoredURLs, url)
 }
