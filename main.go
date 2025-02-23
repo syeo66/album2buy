@@ -195,11 +195,18 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 }
 
 func cleanString(s string) string {
-	// Step 1: Remove non-letters, non-periods, and non-spaces
-	re := regexp.MustCompile(`[^\p{L} ]`)
-	cleaned := re.ReplaceAllString(s, "")
+	// Trim leading/trailing spaces
+	cleaned := strings.TrimSpace(s)
 
-	// Step 2: Collapse multiple spaces to one
+	// Step 1: Remove everything in brackets at the end
+	re := regexp.MustCompile(`\([^)]*\)$`)
+	cleaned = re.ReplaceAllString(cleaned, "")
+
+	// Step 2: Remove non-letters, non-periods, and non-spaces
+	re = regexp.MustCompile(`[^\d\p{L} ]`)
+	cleaned = re.ReplaceAllString(cleaned, "")
+
+	// Step 3: Collapse multiple spaces to one
 	re = regexp.MustCompile(`\s+`)
 	cleaned = re.ReplaceAllString(cleaned, " ")
 
