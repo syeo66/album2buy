@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/hex"
@@ -63,13 +64,16 @@ type Config struct {
 var httpClient = createHTTPClient()
 
 func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
 	cfg := loadConfig()
-	albums, err := fetchLastFMTopAlbums(cfg)
+	albums, err := fetchLastFMTopAlbums(ctx, cfg)
 	if err != nil {
 		fmt.Printf("Error fetching Last.fm albums: %v\n", err)
 		os.Exit(1)
 	}
-	recommendation := findMissingAlbums(cfg, albums)
+	recommendation := findMissingAlbums(ctx, cfg, albums)
 	printRecommendation(recommendation)
 }
 
@@ -106,19 +110,33 @@ func loadConfig() *Config {
 	return cfg
 }
 
-func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
+func fetchLastFMTopAlbums(ctx context.Context, cfg *Config) ([]Album, error) {
 	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
 		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
 
 	var resp *http.Response
 	var err error
 
-	for range maxRetries {
-		resp, err = httpClient.Get(url)
+	for i := range maxRetries {
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if reqErr != nil {
+			err = reqErr
+			continue
+		}
+
+		resp, err = httpClient.Do(req)
+
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
-		time.Sleep(retryDelay)
+
+		if i < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
 	}
 
 	if resp == nil {
@@ -144,7 +162,7 @@ func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 	return lastFMResp.Topalbums.Album, nil
 }
 
-func findMissingAlbums(cfg *Config, albums []Album) []*Album {
+func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Album {
 	missing := make([]*Album, 0, 5)
 
 	ignoredURLs := loadIgnoredURLs()
@@ -154,7 +172,7 @@ func findMissingAlbums(cfg *Config, albums []Album) []*Album {
 			continue
 		}
 
-		exists, err := checkSubsonic(cfg, album)
+		exists, err := checkSubsonic(ctx, cfg, album)
 		if err != nil {
 			continue
 		}
@@ -168,7 +186,7 @@ func findMissingAlbums(cfg *Config, albums []Album) []*Album {
 	return missing
 }
 
-func checkSubsonic(cfg *Config, album Album) (bool, error) {
+func checkSubsonic(ctx context.Context, cfg *Config, album Album) (bool, error) {
 	salt := time.Now().Format("20060102150405")
 	token := md5.Sum([]byte(cfg.SubsonicPass + salt))
 	tokenStr := hex.EncodeToString(token[:])
@@ -184,12 +202,26 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 	var resp *http.Response
 	var err error
 
-	for range maxRetries {
-		resp, err = httpClient.Get(url)
+	for i := range maxRetries {
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if reqErr != nil {
+			err = reqErr
+			continue
+		}
+
+		resp, err = httpClient.Do(req)
+
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
-		time.Sleep(retryDelay)
+
+		if i < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
 	}
 
 	if resp == nil {
