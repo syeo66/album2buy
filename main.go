@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 )
@@ -63,16 +64,103 @@ type Config struct {
 
 var httpClient = createHTTPClient()
 
+type ProgressIndicator struct {
+	mu       sync.Mutex
+	active   bool
+	message  string
+	current  int
+	total    int
+	showBar  bool
+	stopChan chan bool
+}
+
+func NewSpinner(message string) *ProgressIndicator {
+	return &ProgressIndicator{
+		message:  message,
+		showBar:  false,
+		stopChan: make(chan bool),
+	}
+}
+
+func NewProgressBar(message string, total int) *ProgressIndicator {
+	return &ProgressIndicator{
+		message:  message,
+		total:    total,
+		showBar:  true,
+		stopChan: make(chan bool),
+	}
+}
+
+func (p *ProgressIndicator) Start() {
+	p.mu.Lock()
+	p.active = true
+	p.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		
+		spinChars := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+		i := 0
+
+		for {
+			select {
+			case <-p.stopChan:
+				return
+			case <-ticker.C:
+				p.mu.Lock()
+				if !p.active {
+					p.mu.Unlock()
+					return
+				}
+				
+				if p.showBar {
+					percent := float64(p.current) / float64(p.total) * 100
+					barWidth := 30
+					filled := int(float64(barWidth) * percent / 100)
+					bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+					fmt.Printf("\r%s [%s] %d/%d (%.1f%%)", p.message, bar, p.current, p.total, percent)
+				} else {
+					fmt.Printf("\r%s %c", p.message, spinChars[i%len(spinChars)])
+					i++
+				}
+				p.mu.Unlock()
+			}
+		}
+	}()
+}
+
+func (p *ProgressIndicator) Update(current int) {
+	p.mu.Lock()
+	p.current = current
+	p.mu.Unlock()
+}
+
+func (p *ProgressIndicator) Stop() {
+	p.mu.Lock()
+	p.active = false
+	p.mu.Unlock()
+	
+	close(p.stopChan)
+	fmt.Print("\r" + strings.Repeat(" ", 80) + "\r")
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
 	cfg := loadConfig()
+	
+	spinner := NewSpinner("Fetching Last.fm top albums...")
+	spinner.Start()
 	albums, err := fetchLastFMTopAlbums(ctx, cfg)
+	spinner.Stop()
+	
 	if err != nil {
 		fmt.Printf("Error fetching Last.fm albums: %v\n", err)
 		os.Exit(1)
 	}
+	
 	recommendation := findMissingAlbums(ctx, cfg, albums)
 	printRecommendation(recommendation)
 }
@@ -164,10 +252,15 @@ func fetchLastFMTopAlbums(ctx context.Context, cfg *Config) ([]Album, error) {
 
 func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Album {
 	missing := make([]*Album, 0, 5)
-
 	ignoredURLs := loadIgnoredURLs()
 
-	for _, album := range albums {
+	progress := NewProgressBar("Checking albums in library...", len(albums))
+	progress.Start()
+	defer progress.Stop()
+
+	for i, album := range albums {
+		progress.Update(i + 1)
+		
 		if isURLIgnored(album.URL, ignoredURLs) {
 			continue
 		}
