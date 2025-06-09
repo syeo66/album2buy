@@ -64,7 +64,11 @@ var httpClient = createHTTPClient()
 
 func main() {
 	cfg := loadConfig()
-	albums := fetchLastFMTopAlbums(cfg)
+	albums, err := fetchLastFMTopAlbums(cfg)
+	if err != nil {
+		fmt.Printf("Error fetching Last.fm albums: %v\n", err)
+		os.Exit(1)
+	}
 	recommendation := findMissingAlbums(cfg, albums)
 	printRecommendation(recommendation)
 }
@@ -102,7 +106,7 @@ func loadConfig() *Config {
 	return cfg
 }
 
-func fetchLastFMTopAlbums(cfg *Config) []Album {
+func fetchLastFMTopAlbums(cfg *Config) ([]Album, error) {
 	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
 		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
 
@@ -116,17 +120,28 @@ func fetchLastFMTopAlbums(cfg *Config) []Album {
 		}
 		time.Sleep(retryDelay)
 	}
+
+	if resp == nil {
+		return nil, fmt.Errorf("failed to get response from Last.fm after %d retries: %w", maxRetries, err)
+	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-	var lastFMResp LastFMResponse
-	err = json.Unmarshal(body, &lastFMResp)
-
-	if err != nil {
-		fmt.Printf("could not unmarshal last fm data: %v+", err)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Last.fm API returned status %d", resp.StatusCode)
 	}
 
-	return lastFMResp.Topalbums.Album
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var lastFMResp LastFMResponse
+	err = json.Unmarshal(body, &lastFMResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Last.fm response: %w", err)
+	}
+
+	return lastFMResp.Topalbums.Album, nil
 }
 
 func findMissingAlbums(cfg *Config, albums []Album) []*Album {
@@ -176,14 +191,25 @@ func checkSubsonic(cfg *Config, album Album) (bool, error) {
 		}
 		time.Sleep(retryDelay)
 	}
+
+	if resp == nil {
+		return false, fmt.Errorf("failed to get response from Subsonic after %d retries: %w", maxRetries, err)
+	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("Subsonic API returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read Subsonic response body: %w", err)
+	}
+
 	var subsonicResp SubsonicResponse
 	err = json.Unmarshal(body, &subsonicResp)
-
 	if err != nil {
-		fmt.Printf("could not unmarshal subsonic data: %v+", err)
+		return false, fmt.Errorf("failed to unmarshal Subsonic response: %w", err)
 	}
 
 	for _, a := range subsonicResp.SubsonicResponse.SearchResult3.Album {
