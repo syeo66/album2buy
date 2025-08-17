@@ -25,6 +25,8 @@ const (
 	defaultTimeout  = 10 * time.Second
 	maxRetries      = 3
 	retryDelay      = 1 * time.Second
+	maxRecommendations = 5
+	lastFMAlbumLimit = 200
 )
 
 type Album struct {
@@ -199,8 +201,8 @@ func loadConfig() *Config {
 }
 
 func fetchLastFMTopAlbums(ctx context.Context, cfg *Config) ([]Album, error) {
-	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=200",
-		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey)
+	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=%d",
+		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey, lastFMAlbumLimit)
 
 	var resp *http.Response
 	var err error
@@ -251,7 +253,7 @@ func fetchLastFMTopAlbums(ctx context.Context, cfg *Config) ([]Album, error) {
 }
 
 func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Album {
-	missing := make([]*Album, 0, 5)
+	missing := make([]*Album, 0, maxRecommendations)
 	ignoredURLs := loadIgnoredURLs()
 
 	progress := NewProgressBar("Checking albums in library...", len(albums))
@@ -271,7 +273,7 @@ func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Albu
 		}
 		if !exists {
 			missing = append(missing, &album)
-			if len(missing) >= 5 {
+			if len(missing) >= maxRecommendations {
 				break
 			}
 		}

@@ -5,7 +5,7 @@ A Go utility that identifies top Last.fm albums missing from your Subsonic libra
 My reasoning: I’ve been shifting away from Spotify because the platform feels increasingly cluttered with AI-generated content, pays artists poorly, and aligns with business practices I no longer wish to support. Instead, I’ve returned to purchasing downloadable music. Thanks to my past scrobbling history, I can now identify gaps in my offline collection—essentially pinpointing which albums I streamed on Spotify but haven’t yet acquired. Put simply: it’s a way to systematically decide, “What should I buy next based on my listening habits?”
 
 ## Features
-- **Last.fm Integration**: Fetches your top 50 albums from the last year
+- **Last.fm Integration**: Fetches your top 200 albums from the last year
 - **Subsonic Compatibility**: Checks against your Subsonic music library
 - **Smart Recommendations**: Identifies up to 5 missing albums
 - **Retry Logic**: Robust error handling with 3 retry attempts
