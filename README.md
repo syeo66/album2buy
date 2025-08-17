@@ -11,6 +11,7 @@ My reasoning: I’ve been shifting away from Spotify because the platform feels 
 - **Retry Logic**: Robust error handling with 3 retry attempts
 - **Modular Architecture**: Clean separation between HTTP clients and API logic
 - **Progress Indicators**: Visual feedback with spinners and progress bars
+- **Comprehensive Testing**: 73.9% test coverage with unit and integration tests
 
 ## Installation
 
@@ -102,7 +103,9 @@ The application is built with a modular architecture for maintainability and tes
 
 ### Code Structure
 ```
-main.go
+main.go                 # Main application logic (501 lines)
+main_test.go           # Unit tests for all components
+integration_test.go    # End-to-end integration tests
 ├── HTTPClient          # Core HTTP client with retry logic
 ├── LastFMClient        # Last.fm API operations
 ├── SubsonicClient      # Subsonic API operations
@@ -111,15 +114,53 @@ main.go
 ```
 
 ### Testing
+
+The project includes comprehensive test coverage with both unit and integration tests:
+
 ```bash
-go test ./...           # Run tests
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage report
+go test -cover ./...
+
+# Generate detailed coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# Run specific test files
+go test -run TestHTTPClient
+go test -run TestLastFMClient
+go test -run TestSubsonicClient
+```
+
+#### Test Coverage
+- **73.9% overall coverage** across all components
+- **23 test cases** covering critical functionality
+- **Unit tests** for individual components (HTTPClient, LastFMClient, SubsonicClient)
+- **Integration tests** for end-to-end workflows
+- **Mock servers** for external API testing
+- **Environment variable testing** for configuration
+
+#### Test Structure
+- `main_test.go`: Unit tests for all major components
+- `integration_test.go`: End-to-end workflow tests
+
+### Build and Development
+```bash
 go build -o album2buy *.go  # Build application
-gofmt -w .             # Format code
-go doc -all .          # View code documentation
+gofmt -w .                  # Format code
+go doc -all .               # View code documentation
+go vet ./...                # Static analysis
 ```
 
 ### Code Documentation
 All major types and functions include comprehensive Go documentation comments following standard conventions. Use `go doc` to explore the API documentation locally.
+
+For detailed testing information, see [TESTING.md](TESTING.md).
 
 ## License
 MIT © Red Ochsenbein 2025
