@@ -9,6 +9,8 @@ My reasoning: I’ve been shifting away from Spotify because the platform feels 
 - **Subsonic Compatibility**: Checks against your Subsonic music library
 - **Smart Recommendations**: Identifies up to 5 missing albums
 - **Retry Logic**: Robust error handling with 3 retry attempts
+- **Modular Architecture**: Clean separation between HTTP clients and API logic
+- **Progress Indicators**: Visual feedback with spinners and progress bars
 
 ## Installation
 
@@ -74,11 +76,50 @@ RECOMMENDED ALBUMS
 | `SUBSONIC_PASSWORD` | Subsonic account password |
 | `IGNORE_FILE` | Path to a list of ignored Last.fm URL's |
 
+## Architecture
+
+The application is built with a modular architecture for maintainability and testability:
+
+### Core Components
+- **`HTTPClient`**: Centralized HTTP client with configurable retry logic and TLS settings
+- **`LastFMClient`**: Dedicated client for Last.fm API operations
+- **`SubsonicClient`**: Dedicated client for Subsonic API operations with authentication
+- **`ProgressIndicator`**: Visual feedback system with spinners and progress bars
+
+### Key Benefits
+- **Separation of Concerns**: Each client handles its specific API responsibilities
+- **Error Handling**: Consistent retry logic and detailed error messages
+- **Testability**: Modular design enables easy unit testing and mocking
+- **Security**: Secure credential handling and optional TLS verification
+
 ## Requirements
 - Go 1.21+
 - dotenvx (`go install github.com/dotenvx/dotenvx@latest`)
 - Valid Last.fm API credentials
 - Subsonic server (1.16.1+ recommended)
+
+## Development
+
+### Code Structure
+```
+main.go
+├── HTTPClient          # Core HTTP client with retry logic
+├── LastFMClient        # Last.fm API operations
+├── SubsonicClient      # Subsonic API operations
+├── ProgressIndicator   # Visual progress feedback
+└── Utility functions   # String cleaning, configuration, etc.
+```
+
+### Testing
+```bash
+go test ./...           # Run tests
+go build -o album2buy *.go  # Build application
+gofmt -w .             # Format code
+go doc -all .          # View code documentation
+```
+
+### Code Documentation
+All major types and functions include comprehensive Go documentation comments following standard conventions. Use `go doc` to explore the API documentation locally.
 
 ## License
 MIT © Red Ochsenbein 2025

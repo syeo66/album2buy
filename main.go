@@ -20,15 +20,16 @@ import (
 )
 
 const (
-	lastFMAPIURL    = "http://ws.audioscrobbler.com/2.0/"
-	subsonicAPIPath = "/rest/search3.view"
-	defaultTimeout  = 10 * time.Second
-	maxRetries      = 3
-	retryDelay      = 1 * time.Second
+	lastFMAPIURL       = "http://ws.audioscrobbler.com/2.0/"
+	subsonicAPIPath    = "/rest/search3.view"
+	defaultTimeout     = 10 * time.Second
+	maxRetries         = 3
+	retryDelay         = 1 * time.Second
 	maxRecommendations = 5
-	lastFMAlbumLimit = 200
+	lastFMAlbumLimit   = 200
 )
 
+// Album represents a music album from Last.fm API response
 type Album struct {
 	Name   string `json:"name"`
 	Artist struct {
@@ -37,14 +38,17 @@ type Album struct {
 	URL string `json:"url"`
 }
 
+// Topalbums represents the top albums section of Last.fm API response
 type Topalbums struct {
 	Album []Album `json:"album"`
 }
 
+// LastFMResponse represents the complete Last.fm API response structure
 type LastFMResponse struct {
 	Topalbums Topalbums `json:"topalbums"`
 }
 
+// SubsonicResponse represents the Subsonic API search response structure
 type SubsonicResponse struct {
 	SubsonicResponse struct {
 		SearchResult3 struct {
@@ -56,6 +60,7 @@ type SubsonicResponse struct {
 	} `json:"subsonic-response"`
 }
 
+// Config holds all configuration values loaded from environment variables
 type Config struct {
 	LastFMAPIKey   string
 	LastFMUser     string
@@ -64,8 +69,186 @@ type Config struct {
 	SubsonicPass   string
 }
 
-var httpClient = createHTTPClient()
+// HTTPClient wraps http.Client with retry logic and configuration
+type HTTPClient struct {
+	client     *http.Client
+	maxRetries int
+	retryDelay time.Duration
+}
 
+// NewHTTPClient creates a new HTTPClient with default configuration and optional TLS verification skip
+func NewHTTPClient() *HTTPClient {
+	skipVerify := os.Getenv("INSECURE_SKIP_VERIFY") == "true"
+
+	return &HTTPClient{
+		client: &http.Client{
+			Timeout: defaultTimeout,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: skipVerify,
+				},
+			},
+		},
+		maxRetries: maxRetries,
+		retryDelay: retryDelay,
+	}
+}
+
+// DoWithRetry executes an HTTP request with automatic retry logic on failures
+func (h *HTTPClient) DoWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+
+	for i := range h.maxRetries {
+		resp, err = h.client.Do(req)
+
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		if i < h.maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(h.retryDelay):
+			}
+		}
+	}
+
+	if resp == nil {
+		return nil, fmt.Errorf("failed to get response after %d retries: %w", h.maxRetries, err)
+	}
+
+	return resp, fmt.Errorf("request failed with status %d after %d retries", resp.StatusCode, h.maxRetries)
+}
+
+// LastFMClient handles all Last.fm API operations
+type LastFMClient struct {
+	httpClient *HTTPClient
+	apiKey     string
+	baseURL    string
+}
+
+// NewLastFMClient creates a new Last.fm API client
+func NewLastFMClient(httpClient *HTTPClient, apiKey string) *LastFMClient {
+	return &LastFMClient{
+		httpClient: httpClient,
+		apiKey:     apiKey,
+		baseURL:    lastFMAPIURL,
+	}
+}
+
+// GetTopAlbums fetches the user's top albums from Last.fm for the past 12 months
+func (l *LastFMClient) GetTopAlbums(ctx context.Context, user string, limit int) ([]Album, error) {
+	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=%d",
+		l.baseURL, user, l.apiKey, limit)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := l.httpClient.DoWithRetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("Last.fm API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var lastFMResp LastFMResponse
+	err = json.Unmarshal(body, &lastFMResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Last.fm response: %w", err)
+	}
+
+	return lastFMResp.Topalbums.Album, nil
+}
+
+// SubsonicClient handles all Subsonic API operations with authentication
+type SubsonicClient struct {
+	httpClient *HTTPClient
+	server     string
+	user       string
+	password   string
+}
+
+// NewSubsonicClient creates a new Subsonic API client
+func NewSubsonicClient(httpClient *HTTPClient, server, user, password string) *SubsonicClient {
+	return &SubsonicClient{
+		httpClient: httpClient,
+		server:     server,
+		user:       user,
+		password:   password,
+	}
+}
+
+// SearchAlbum searches for albums in the Subsonic library by name
+func (s *SubsonicClient) SearchAlbum(ctx context.Context, albumName string) ([]struct {
+	Title  string `json:"name"`
+	Artist string `json:"artist"`
+}, error) {
+	salt := time.Now().Format("20060102150405")
+	token := md5.Sum([]byte(s.password + salt))
+	tokenStr := hex.EncodeToString(token[:])
+
+	query := url.QueryEscape(cleanString(albumName))
+	requestURL := fmt.Sprintf("%s%s?u=%s&t=%s&s=%s&v=1.16.1&c=albumcheck&f=json&query=%s",
+		s.server, subsonicAPIPath,
+		url.QueryEscape(s.user),
+		tokenStr,
+		salt,
+		query)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := s.httpClient.DoWithRetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("Subsonic API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Subsonic response body: %w", err)
+	}
+
+	var subsonicResp SubsonicResponse
+	err = json.Unmarshal(body, &subsonicResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Subsonic response: %w", err)
+	}
+
+	return subsonicResp.SubsonicResponse.SearchResult3.Album, nil
+}
+
+// HasAlbum checks if a specific album exists in the Subsonic library
+func (s *SubsonicClient) HasAlbum(ctx context.Context, album Album) (bool, error) {
+	albums, err := s.SearchAlbum(ctx, album.Name)
+	if err != nil {
+		return false, err
+	}
+
+	for _, a := range albums {
+		if strings.EqualFold(cleanString(a.Title), cleanString(album.Name)) &&
+			strings.EqualFold(cleanString(a.Artist), cleanString(album.Artist.Name)) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ProgressIndicator provides visual feedback for long-running operations
 type ProgressIndicator struct {
 	mu       sync.Mutex
 	active   bool
@@ -76,6 +259,7 @@ type ProgressIndicator struct {
 	stopChan chan bool
 }
 
+// NewSpinner creates a new spinner progress indicator for indeterminate operations
 func NewSpinner(message string) *ProgressIndicator {
 	return &ProgressIndicator{
 		message:  message,
@@ -84,6 +268,7 @@ func NewSpinner(message string) *ProgressIndicator {
 	}
 }
 
+// NewProgressBar creates a new progress bar for operations with known total
 func NewProgressBar(message string, total int) *ProgressIndicator {
 	return &ProgressIndicator{
 		message:  message,
@@ -93,6 +278,7 @@ func NewProgressBar(message string, total int) *ProgressIndicator {
 	}
 }
 
+// Start begins the progress indicator animation
 func (p *ProgressIndicator) Start() {
 	p.mu.Lock()
 	p.active = true
@@ -101,7 +287,7 @@ func (p *ProgressIndicator) Start() {
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		
+
 		spinChars := []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
 		i := 0
 
@@ -115,7 +301,7 @@ func (p *ProgressIndicator) Start() {
 					p.mu.Unlock()
 					return
 				}
-				
+
 				if p.showBar {
 					percent := float64(p.current) / float64(p.total) * 100
 					barWidth := 30
@@ -132,17 +318,19 @@ func (p *ProgressIndicator) Start() {
 	}()
 }
 
+// Update sets the current progress value for progress bars
 func (p *ProgressIndicator) Update(current int) {
 	p.mu.Lock()
 	p.current = current
 	p.mu.Unlock()
 }
 
+// Stop terminates the progress indicator and clears the display
 func (p *ProgressIndicator) Stop() {
 	p.mu.Lock()
 	p.active = false
 	p.mu.Unlock()
-	
+
 	close(p.stopChan)
 	fmt.Print("\r" + strings.Repeat(" ", 80) + "\r")
 }
@@ -152,21 +340,26 @@ func main() {
 	defer cancel()
 
 	cfg := loadConfig()
-	
+
+	httpClient := NewHTTPClient()
+	lastFMClient := NewLastFMClient(httpClient, cfg.LastFMAPIKey)
+	subsonicClient := NewSubsonicClient(httpClient, cfg.SubsonicServer, cfg.SubsonicUser, cfg.SubsonicPass)
+
 	spinner := NewSpinner("Fetching Last.fm top albums...")
 	spinner.Start()
-	albums, err := fetchLastFMTopAlbums(ctx, cfg)
+	albums, err := lastFMClient.GetTopAlbums(ctx, cfg.LastFMUser, lastFMAlbumLimit)
 	spinner.Stop()
-	
+
 	if err != nil {
 		fmt.Printf("Error fetching Last.fm albums: %v\n", err)
 		os.Exit(1)
 	}
-	
-	recommendation := findMissingAlbums(ctx, cfg, albums)
+
+	recommendation := findMissingAlbums(ctx, subsonicClient, albums)
 	printRecommendation(recommendation)
 }
 
+// loadConfig loads configuration from environment variables and validates required fields
 func loadConfig() *Config {
 	cfg := &Config{
 		LastFMAPIKey:   os.Getenv("LASTFM_API_KEY"),
@@ -200,59 +393,8 @@ func loadConfig() *Config {
 	return cfg
 }
 
-func fetchLastFMTopAlbums(ctx context.Context, cfg *Config) ([]Album, error) {
-	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=%d",
-		lastFMAPIURL, cfg.LastFMUser, cfg.LastFMAPIKey, lastFMAlbumLimit)
-
-	var resp *http.Response
-	var err error
-
-	for i := range maxRetries {
-		req, reqErr := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if reqErr != nil {
-			err = reqErr
-			continue
-		}
-
-		resp, err = httpClient.Do(req)
-
-		if err == nil && resp.StatusCode == http.StatusOK {
-			break
-		}
-
-		if i < maxRetries-1 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(retryDelay):
-			}
-		}
-	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("failed to get response from Last.fm after %d retries: %w", maxRetries, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Last.fm API returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var lastFMResp LastFMResponse
-	err = json.Unmarshal(body, &lastFMResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal Last.fm response: %w", err)
-	}
-
-	return lastFMResp.Topalbums.Album, nil
-}
-
-func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Album {
+// findMissingAlbums identifies albums from Last.fm that are not present in the Subsonic library
+func findMissingAlbums(ctx context.Context, subsonicClient *SubsonicClient, albums []Album) []*Album {
 	missing := make([]*Album, 0, maxRecommendations)
 	ignoredURLs := loadIgnoredURLs()
 
@@ -262,12 +404,12 @@ func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Albu
 
 	for i, album := range albums {
 		progress.Update(i + 1)
-		
+
 		if isURLIgnored(album.URL, ignoredURLs) {
 			continue
 		}
 
-		exists, err := checkSubsonic(ctx, cfg, album)
+		exists, err := subsonicClient.HasAlbum(ctx, album)
 		if err != nil {
 			continue
 		}
@@ -281,72 +423,8 @@ func findMissingAlbums(ctx context.Context, cfg *Config, albums []Album) []*Albu
 	return missing
 }
 
-func checkSubsonic(ctx context.Context, cfg *Config, album Album) (bool, error) {
-	salt := time.Now().Format("20060102150405")
-	token := md5.Sum([]byte(cfg.SubsonicPass + salt))
-	tokenStr := hex.EncodeToString(token[:])
-
-	query := url.QueryEscape(cleanString(album.Name))
-	url := fmt.Sprintf("%s%s?u=%s&t=%s&s=%s&v=1.16.1&c=albumcheck&f=json&query=%s",
-		cfg.SubsonicServer, subsonicAPIPath,
-		url.QueryEscape(cfg.SubsonicUser), // Encode username
-		tokenStr,
-		salt,
-		query)
-
-	var resp *http.Response
-	var err error
-
-	for i := range maxRetries {
-		req, reqErr := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if reqErr != nil {
-			err = reqErr
-			continue
-		}
-
-		resp, err = httpClient.Do(req)
-
-		if err == nil && resp.StatusCode == http.StatusOK {
-			break
-		}
-
-		if i < maxRetries-1 {
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case <-time.After(retryDelay):
-			}
-		}
-	}
-
-	if resp == nil {
-		return false, fmt.Errorf("failed to get response from Subsonic after %d retries: %w", maxRetries, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("Subsonic API returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read Subsonic response body: %w", err)
-	}
-
-	var subsonicResp SubsonicResponse
-	err = json.Unmarshal(body, &subsonicResp)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal Subsonic response: %w", err)
-	}
-
-	for _, a := range subsonicResp.SubsonicResponse.SearchResult3.Album {
-		if strings.EqualFold(cleanString(a.Title), cleanString(album.Name)) && strings.EqualFold(cleanString(a.Artist), cleanString(album.Artist.Name)) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
+// cleanString normalizes album and artist names for comparison by removing brackets,
+// special characters, and standardizing whitespace
 func cleanString(s string) string {
 	// Trim leading/trailing spaces
 	cleaned := strings.TrimSpace(s)
@@ -369,6 +447,7 @@ func cleanString(s string) string {
 	return cleaned
 }
 
+// printRecommendation displays the list of recommended albums in a formatted table
 func printRecommendation(albums []*Album) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer w.Flush()
@@ -387,19 +466,8 @@ func printRecommendation(albums []*Album) {
 	}
 }
 
-func createHTTPClient() *http.Client {
-	skipVerify := os.Getenv("INSECURE_SKIP_VERIFY") == "true"
-
-	return &http.Client{
-		Timeout: defaultTimeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: skipVerify,
-			},
-		},
-	}
-}
-
+// loadIgnoredURLs reads a list of Last.fm URLs to ignore from the file specified
+// in the IGNORE_FILE environment variable
 func loadIgnoredURLs() []string {
 	filePath := os.Getenv("IGNORE_FILE")
 	if filePath == "" {
@@ -427,6 +495,7 @@ func loadIgnoredURLs() []string {
 	return ignoredURLs
 }
 
+// isURLIgnored checks if a URL is in the ignore list
 func isURLIgnored(url string, ignoredURLs []string) bool {
 	return slices.Contains(ignoredURLs, url)
 }
