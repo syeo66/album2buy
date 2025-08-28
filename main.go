@@ -26,7 +26,7 @@ const (
 	maxRetries         = 3
 	retryDelay         = 1 * time.Second
 	maxRecommendations = 5
-	lastFMAlbumLimit   = 200
+	lastFMAlbumLimit   = 500
 )
 
 // Album represents a music album from Last.fm API response
