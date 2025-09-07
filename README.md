@@ -5,10 +5,11 @@ A Go utility that identifies top Last.fm albums missing from your Subsonic libra
 My reasoning: I’ve been shifting away from Spotify because the platform feels increasingly cluttered with AI-generated content, pays artists poorly, and aligns with business practices I no longer wish to support. Instead, I’ve returned to purchasing downloadable music. Thanks to my past scrobbling history, I can now identify gaps in my offline collection—essentially pinpointing which albums I streamed on Spotify but haven’t yet acquired. Put simply: it’s a way to systematically decide, “What should I buy next based on my listening habits?”
 
 ## Features
-- **Last.fm Integration**: Fetches your top 200 albums from the last year
+- **Last.fm Integration**: Fetches your top 500 albums from the last year
 - **Subsonic Compatibility**: Checks against your Subsonic music library
 - **Smart Recommendations**: Identifies up to 5 missing albums
 - **Retry Logic**: Robust error handling with 3 retry attempts
+- **Error Diagnostics**: Comprehensive error categorization and reporting
 - **Modular Architecture**: Clean separation between HTTP clients and API logic
 - **Progress Indicators**: Visual feedback with spinners and progress bars
 - **Comprehensive Testing**: 73.9% test coverage with unit and integration tests
@@ -43,7 +44,11 @@ SUBSONIC_PASSWORD=your_subsonic_password
 ## Usage
 
 ```bash
+# Basic usage
 ./run.sh # Uses dotenvx to load environment variables
+
+# Verbose mode for detailed error reporting
+VERBOSE=true ./run.sh
 ```
 
 Sample output:
@@ -75,7 +80,9 @@ RECOMMENDED ALBUMS
 | `SUBSONIC_SERVER` | Subsonic server URL (include protocol) |
 | `SUBSONIC_USER` | Subsonic account username |
 | `SUBSONIC_PASSWORD` | Subsonic account password |
-| `IGNORE_FILE` | Path to a list of ignored Last.fm URL's |
+| `IGNORE_FILE` | Path to a list of ignored Last.fm URL's (optional) |
+| `VERBOSE` | Set to "true" for detailed error reporting (optional) |
+| `INSECURE_SKIP_VERIFY` | Set to "true" to skip TLS verification (optional) |
 
 ## Architecture
 
@@ -86,6 +93,7 @@ The application is built with a modular architecture for maintainability and tes
 - **`LastFMClient`**: Dedicated client for Last.fm API operations
 - **`SubsonicClient`**: Dedicated client for Subsonic API operations with authentication
 - **`ProgressIndicator`**: Visual feedback system with spinners and progress bars
+- **`ErrorStats`**: Error tracking and categorization system for diagnostics
 
 ### Key Benefits
 - **Separation of Concerns**: Each client handles its specific API responsibilities
@@ -103,13 +111,14 @@ The application is built with a modular architecture for maintainability and tes
 
 ### Code Structure
 ```
-main.go                 # Main application logic (501 lines)
+main.go                 # Main application logic (580 lines)
 main_test.go           # Unit tests for all components
 integration_test.go    # End-to-end integration tests
 ├── HTTPClient          # Core HTTP client with retry logic
 ├── LastFMClient        # Last.fm API operations
 ├── SubsonicClient      # Subsonic API operations
 ├── ProgressIndicator   # Visual progress feedback
+├── ErrorStats          # Error tracking and categorization
 └── Utility functions   # String cleaning, configuration, etc.
 ```
 
@@ -135,11 +144,12 @@ go tool cover -html=coverage.out
 go test -run TestHTTPClient
 go test -run TestLastFMClient
 go test -run TestSubsonicClient
+go test -run TestCategorizeError
 ```
 
 #### Test Coverage
 - **73.9% overall coverage** across all components
-- **23 test cases** covering critical functionality
+- **36 test cases** covering critical functionality
 - **Unit tests** for individual components (HTTPClient, LastFMClient, SubsonicClient)
 - **Integration tests** for end-to-end workflows
 - **Mock servers** for external API testing

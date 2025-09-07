@@ -393,10 +393,22 @@ func loadConfig() *Config {
 	return cfg
 }
 
+// ErrorStats tracks statistics about API errors during album checking
+type ErrorStats struct {
+	Total       int
+	Successful  int
+	Failed      int
+	RateLimit   int
+	ServerError int
+	Network     int
+	Other       int
+}
+
 // findMissingAlbums identifies albums from Last.fm that are not present in the Subsonic library
 func findMissingAlbums(ctx context.Context, subsonicClient *SubsonicClient, albums []Album) []*Album {
 	missing := make([]*Album, 0, maxRecommendations)
 	ignoredURLs := loadIgnoredURLs()
+	errorStats := &ErrorStats{}
 
 	progress := NewProgressBar("Checking albums in library...", len(albums))
 	progress.Start()
@@ -409,10 +421,20 @@ func findMissingAlbums(ctx context.Context, subsonicClient *SubsonicClient, albu
 			continue
 		}
 
+		errorStats.Total++
 		exists, err := subsonicClient.HasAlbum(ctx, album)
 		if err != nil {
+			errorStats.Failed++
+			categorizeError(err, errorStats)
+			
+			// Show error details if verbose mode is enabled
+			if os.Getenv("VERBOSE") == "true" {
+				fmt.Printf("\nError checking album '%s - %s': %v\n", album.Artist.Name, album.Name, err)
+			}
 			continue
 		}
+		
+		errorStats.Successful++
 		if !exists {
 			missing = append(missing, &album)
 			if len(missing) >= maxRecommendations {
@@ -420,7 +442,64 @@ func findMissingAlbums(ctx context.Context, subsonicClient *SubsonicClient, albu
 			}
 		}
 	}
+	
+	// Report error statistics if there were any failures
+	if errorStats.Failed > 0 {
+		fmt.Printf("\nAPI Statistics: %d/%d requests successful", errorStats.Successful, errorStats.Total)
+		if errorStats.Failed > 0 {
+			fmt.Printf(" (%d failed)", errorStats.Failed)
+		}
+		fmt.Println()
+		
+		if errorStats.RateLimit > 0 {
+			fmt.Printf("⚠️  Rate limiting detected (%d requests) - server may be limiting API calls\n", errorStats.RateLimit)
+		}
+		if errorStats.ServerError > 0 {
+			fmt.Printf("⚠️  Server errors detected (%d requests) - Subsonic server may be overloaded\n", errorStats.ServerError)
+		}
+		if errorStats.Network > 0 {
+			fmt.Printf("⚠️  Network issues detected (%d requests) - connection problems to server\n", errorStats.Network)
+		}
+		if errorStats.Other > 0 {
+			fmt.Printf("⚠️  Other errors detected (%d requests) - run with VERBOSE=true for details\n", errorStats.Other)
+		}
+	}
+	
 	return missing
+}
+
+// categorizeError analyzes the error to determine its likely cause
+func categorizeError(err error, stats *ErrorStats) {
+	errStr := strings.ToLower(err.Error())
+	
+	// Check for rate limiting indicators
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") || 
+	   strings.Contains(errStr, "too many requests") {
+		stats.RateLimit++
+		return
+	}
+	
+	// Check for server errors
+	if strings.Contains(errStr, "500") || strings.Contains(errStr, "502") || 
+	   strings.Contains(errStr, "503") || strings.Contains(errStr, "504") ||
+	   strings.Contains(errStr, "internal server error") || 
+	   strings.Contains(errStr, "bad gateway") || 
+	   strings.Contains(errStr, "service unavailable") || 
+	   strings.Contains(errStr, "gateway timeout") {
+		stats.ServerError++
+		return
+	}
+	
+	// Check for network issues
+	if strings.Contains(errStr, "connection") || strings.Contains(errStr, "timeout") ||
+	   strings.Contains(errStr, "network") || strings.Contains(errStr, "dial") ||
+	   strings.Contains(errStr, "no such host") {
+		stats.Network++
+		return
+	}
+	
+	// Everything else
+	stats.Other++
 }
 
 // cleanString normalizes album and artist names for comparison by removing brackets,

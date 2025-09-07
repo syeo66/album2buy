@@ -15,6 +15,7 @@ Tests individual components in isolation:
 - **LastFMClient**: API calls, JSON parsing, error handling
 - **SubsonicClient**: Search functionality, album detection, authentication
 - **ProgressIndicator**: Spinner and progress bar functionality
+- **Error Handling**: Error categorization, statistics tracking
 - **Utility Functions**: String cleaning, URL filtering, configuration loading
 - **Output Functions**: Recommendation formatting and display
 
@@ -44,6 +45,7 @@ go test -cover ./...
 go test -run TestHTTPClient
 go test -run TestLastFMClient
 go test -run TestSubsonicClient
+go test -run TestCategorizeError
 go test -run Integration
 ```
 
@@ -86,13 +88,19 @@ go test -cpuprofile=cpu.prof ./...
 - **Subsonic Integration**: Authentication, search functionality
 - **Error Scenarios**: Invalid JSON, network failures, API errors
 
-### 3. Utility Function Tests
+### 3. Error Handling Tests
+- **Error Categorization**: Rate limiting, server errors, network issues
+- **Statistics Tracking**: Success/failure rate monitoring
+- **Verbose Logging**: Detailed error message formatting
+- **Error Classification**: Automatic error type detection
+
+### 4. Utility Function Tests
 - **String Cleaning**: Album/artist name normalization
 - **URL Filtering**: Ignore list functionality
 - **Configuration**: Environment variable handling
 - **File Operations**: Ignore file parsing, error handling
 
-### 4. Integration Tests
+### 5. Integration Tests
 - **Complete Workflows**: Full application flow testing
 - **Mock Services**: HTTP test servers for external APIs
 - **Data Flow**: Verification of data transformation pipeline

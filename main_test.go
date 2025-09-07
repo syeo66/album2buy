@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -775,5 +776,84 @@ func TestPrintRecommendationWithAlbums(t *testing.T) {
 	
 	if !strings.Contains(output, "https://www.last.fm/music/Test+Artist+1/Test+Album+1") {
 		t.Error("Expected first album URL in output")
+	}
+}
+
+func TestCategorizeError(t *testing.T) {
+	tests := []struct {
+		name          string
+		errorMessage  string
+		expectedField string
+	}{
+		{
+			name:          "Rate limit error - 429",
+			errorMessage:  "request failed with status 429 after 3 retries",
+			expectedField: "RateLimit",
+		},
+		{
+			name:          "Rate limit error - too many requests",
+			errorMessage:  "too many requests, please try again later",
+			expectedField: "RateLimit",
+		},
+		{
+			name:          "Server error - 500",
+			errorMessage:  "request failed with status 500 after 3 retries",
+			expectedField: "ServerError",
+		},
+		{
+			name:          "Server error - 503",
+			errorMessage:  "service unavailable",
+			expectedField: "ServerError",
+		},
+		{
+			name:          "Network error - timeout",
+			errorMessage:  "context deadline exceeded (timeout)",
+			expectedField: "Network",
+		},
+		{
+			name:          "Network error - connection refused",
+			errorMessage:  "connection refused",
+			expectedField: "Network",
+		},
+		{
+			name:          "Network error - no such host",
+			errorMessage:  "no such host",
+			expectedField: "Network",
+		},
+		{
+			name:          "Other error",
+			errorMessage:  "some unknown error occurred",
+			expectedField: "Other",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := &ErrorStats{}
+			err := fmt.Errorf(tt.errorMessage)
+			
+			categorizeError(err, stats)
+			
+			switch tt.expectedField {
+			case "RateLimit":
+				if stats.RateLimit != 1 {
+					t.Errorf("Expected RateLimit=1, got %d", stats.RateLimit)
+				}
+			case "ServerError":
+				if stats.ServerError != 1 {
+					t.Errorf("Expected ServerError=1, got %d", stats.ServerError)
+				}
+			case "Network":
+				if stats.Network != 1 {
+					t.Errorf("Expected Network=1, got %d", stats.Network)
+				}
+			case "Other":
+				if stats.Other != 1 {
+					t.Errorf("Expected Other=1, got %d", stats.Other)
+				}
+			default:
+				t.Errorf("Unknown expected field: %s", tt.expectedField)
+			}
+		})
 	}
 }
