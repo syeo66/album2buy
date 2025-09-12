@@ -336,14 +336,15 @@ func (p *ProgressIndicator) Stop() {
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-
 	cfg := loadConfig()
 
 	httpClient := NewHTTPClient()
 	lastFMClient := NewLastFMClient(httpClient, cfg.LastFMAPIKey)
 	subsonicClient := NewSubsonicClient(httpClient, cfg.SubsonicServer, cfg.SubsonicUser, cfg.SubsonicPass)
+
+	// Use separate context for Last.fm API call
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
 
 	spinner := NewSpinner("Fetching Last.fm top albums...")
 	spinner.Start()
@@ -355,7 +356,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	recommendation := findMissingAlbums(ctx, subsonicClient, albums)
+	// Use background context for album checking (no overall timeout)
+	recommendation := findMissingAlbums(context.Background(), subsonicClient, albums)
 	printRecommendation(recommendation)
 }
 
