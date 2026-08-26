@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -26,7 +27,8 @@ const (
 	maxRetries         = 3
 	retryDelay         = 1 * time.Second
 	maxRecommendations = 5
-	lastFMAlbumLimit   = 500
+	lastFMAlbumLimit   = 1000
+	lastFMPageSize     = 500 // Last.fm caps the per-request limit at 500 regardless of what's requested
 )
 
 // Album represents a music album from Last.fm API response
@@ -41,6 +43,10 @@ type Album struct {
 // Topalbums represents the top albums section of Last.fm API response
 type Topalbums struct {
 	Album []Album `json:"album"`
+	Attr  struct {
+		Page       string `json:"page"`
+		TotalPages string `json:"totalPages"`
+	} `json:"@attr"`
 }
 
 // LastFMResponse represents the complete Last.fm API response structure
@@ -142,34 +148,53 @@ func NewLastFMClient(httpClient *HTTPClient, apiKey string) *LastFMClient {
 	}
 }
 
-// GetTopAlbums fetches the user's top albums from Last.fm for the past 12 months
+// GetTopAlbums fetches the user's all-time top albums from Last.fm,
+// paginating past Last.fm's 500-per-request cap until limit albums are collected
+// or the API runs out of pages.
 func (l *LastFMClient) GetTopAlbums(ctx context.Context, user string, limit int) ([]Album, error) {
-	url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=12month&limit=%d",
-		l.baseURL, user, l.apiKey, limit)
+	var albums []Album
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s?method=user.gettopalbums&user=%s&api_key=%s&format=json&period=overall&limit=%d&page=%d",
+			l.baseURL, user, l.apiKey, lastFMPageSize, page)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := l.httpClient.DoWithRetry(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("Last.fm API request failed: %w", err)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		var lastFMResp LastFMResponse
+		if err := json.Unmarshal(body, &lastFMResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Last.fm response: %w", err)
+		}
+
+		if len(lastFMResp.Topalbums.Album) == 0 {
+			break
+		}
+		albums = append(albums, lastFMResp.Topalbums.Album...)
+
+		totalPages, _ := strconv.Atoi(lastFMResp.Topalbums.Attr.TotalPages)
+		if len(albums) >= limit || page >= totalPages {
+			break
+		}
 	}
 
-	resp, err := l.httpClient.DoWithRetry(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("Last.fm API request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	if len(albums) > limit {
+		albums = albums[:limit]
 	}
 
-	var lastFMResp LastFMResponse
-	err = json.Unmarshal(body, &lastFMResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal Last.fm response: %w", err)
-	}
-
-	return lastFMResp.Topalbums.Album, nil
+	return albums, nil
 }
 
 // SubsonicClient handles all Subsonic API operations with authentication
@@ -342,8 +367,9 @@ func main() {
 	lastFMClient := NewLastFMClient(httpClient, cfg.LastFMAPIKey)
 	subsonicClient := NewSubsonicClient(httpClient, cfg.SubsonicServer, cfg.SubsonicUser, cfg.SubsonicPass)
 
-	// Use separate context for Last.fm API call
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	// Use separate context for Last.fm API call; multiplied since fetching
+	// beyond lastFMPageSize albums requires multiple sequential page requests
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout*3)
 	defer cancel()
 
 	spinner := NewSpinner("Fetching Last.fm top albums...")
